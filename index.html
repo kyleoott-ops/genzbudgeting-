@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>BudgetBros 3.0</title>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+:root{
+  --bg:#0f0f18;
+  --card:#17172a;
+  --accent:#7c5cff;
+  --green:#22c55e;
+  --red:#ef4444;
+  --yellow:#facc15;
+  --text:#f3f3f3;
+}
+
+body{
+  margin:0;
+  font-family:Inter,sans-serif;
+  background:linear-gradient(135deg,#0f0f18,#181830);
+  color:var(--text);
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  padding:20px;
+}
+
+h1{
+  font-size:2.3rem;
+  font-weight:900;
+}
+
+.card{
+  background:var(--card);
+  width:100%;
+  max-width:550px;
+  padding:20px;
+  border-radius:20px;
+  margin-bottom:20px;
+  box-shadow:0 10px 30px rgba(0,0,0,0.4);
+}
+
+input,select,button{
+  width:100%;
+  padding:12px;
+  margin-top:10px;
+  border-radius:12px;
+  border:none;
+  font-size:1rem;
+}
+
+input,select{
+  background:#111;
+  color:white;
+}
+
+button{
+  background:var(--accent);
+  color:white;
+  font-weight:700;
+  cursor:pointer;
+}
+
+button:hover{
+  transform:scale(1.03);
+}
+
+.row{
+  display:flex;
+  gap:10px;
+}
+
+.stat{
+  text-align:center;
+  font-weight:800;
+  font-size:1.2rem;
+}
+
+.green{color:var(--green)}
+.red{color:var(--red)}
+.yellow{color:var(--yellow)}
+
+.delete{
+  background:var(--red);
+  padding:4px 8px;
+  border-radius:8px;
+  font-size:.8rem;
+  cursor:pointer;
+}
+
+.list-item{
+  display:flex;
+  justify-content:space-between;
+  margin-top:8px;
+  background:#111;
+  padding:8px;
+  border-radius:10px;
+}
+</style>
+</head>
+<body>
+
+<h1>💸 budgetbros</h1>
+
+<div class="card">
+<h3>add transaction</h3>
+<select id="type">
+<option value="expense">expense</option>
+<option value="deposit">deposit</option>
+</select>
+<input id="name" placeholder="name"/>
+<input id="amount" type="number" placeholder="amount"/>
+<select id="category">
+<option value="food">food</option>
+<option value="transport">transport</option>
+<option value="shopping">shopping</option>
+<option value="entertainment">entertainment</option>
+<option value="other">other</option>
+</select>
+<button onclick="addEntry()">add</button>
+</div>
+
+<div class="card">
+<h3>set category limits</h3>
+<select id="limitCategory">
+<option value="food">food</option>
+<option value="transport">transport</option>
+<option value="shopping">shopping</option>
+<option value="entertainment">entertainment</option>
+<option value="other">other</option>
+</select>
+<input id="limitAmount" type="number" placeholder="limit amount"/>
+<button onclick="setLimit()">set limit</button>
+</div>
+
+<div class="card row">
+<div class="stat" id="balanceStat">$0 balance</div>
+<div class="stat" id="streakStat">🔥 0 day streak</div>
+</div>
+
+<div class="card">
+<h3>transactions</h3>
+<div id="list"></div>
+<button onclick="exportCSV()">export csv</button>
+</div>
+
+<div class="card">
+<h3>monthly distribution</h3>
+<canvas id="chart"></canvas>
+</div>
+
+<div class="card">
+<h3>ai financial feedback</h3>
+<div id="roast" style="opacity:.8"></div>
+</div>
+
+<script>
+let expenses=JSON.parse(localStorage.getItem('expenses')||'[]');
+let deposits=JSON.parse(localStorage.getItem('deposits')||'[]');
+let limits=JSON.parse(localStorage.getItem('limits')||'{}');
+let streak=parseInt(localStorage.getItem('streak')||'0');
+let chart;
+
+function save(){
+localStorage.setItem('expenses',JSON.stringify(expenses));
+localStorage.setItem('deposits',JSON.stringify(deposits));
+localStorage.setItem('limits',JSON.stringify(limits));
+localStorage.setItem('streak',streak);
+}
+
+function addEntry(){
+const type=document.getElementById('type').value;
+const name=document.getElementById('name').value.trim();
+const amount=parseFloat(document.getElementById('amount').value);
+const category=document.getElementById('category').value;
+const date=new Date().toISOString();
+
+if(!name||isNaN(amount)) return;
+
+if(type==="expense"){
+expenses.push({name,amount,category,date});
+}else{
+deposits.push({name,amount,date});
+}
+
+save();
+render();
+document.getElementById('name').value="";
+document.getElementById('amount').value="";
+}
+
+function setLimit(){
+const cat=document.getElementById('limitCategory').value;
+const amt=parseFloat(document.getElementById('limitAmount').value);
+if(isNaN(amt)) return;
+limits[cat]=amt;
+save();
+render();
+}
+
+function exportCSV(){
+let rows=["type,name,amount,category,date"];
+expenses.forEach(e=>rows.push(`expense,${e.name},${e.amount},${e.category},${e.date}`));
+deposits.forEach(d=>rows.push(`deposit,${d.name},${d.amount},,${d.date}`));
+let blob=new Blob([rows.join("\n")],{type:"text/csv"});
+let a=document.createElement("a");
+a.href=URL.createObjectURL(blob);
+a.download="budget.csv";
+a.click();
+}
+
+function render(){
+const list=document.getElementById('list');
+list.innerHTML="";
+let totalExpense=0;
+let totalDeposit=0;
+let categoryTotals={};
+
+expenses.forEach((e,i)=>{
+totalExpense+=e.amount;
+categoryTotals[e.category]=(categoryTotals[e.category]||0)+e.amount;
+list.innerHTML+=`
+<div class="list-item">
+<span>${e.name} - $${e.amount.toFixed(2)}</span>
+<div class="delete" onclick="expenses.splice(${i},1);save();render();">x</div>
+</div>`;
+});
+
+deposits.forEach((d,i)=>{
+totalDeposit+=d.amount;
+list.innerHTML+=`
+<div class="list-item">
+<span style="color:#22c55e">${d.name} + $${d.amount.toFixed(2)}</span>
+<div class="delete" onclick="deposits.splice(${i},1);save();render();">x</div>
+</div>`;
+});
+
+let balance=totalDeposit-totalExpense;
+document.getElementById('balanceStat').innerHTML=`$${balance.toFixed(2)} balance`;
+
+if(balance>=0) streak++;
+else streak=0;
+
+document.getElementById('streakStat').innerHTML=`🔥 ${streak} day streak`;
+
+let roast="you chilling financially.";
+for(let cat in categoryTotals){
+if(limits[cat] && categoryTotals[cat]>limits[cat]){
+roast=`bro the ${cat} spending is wild 😭`;
+}
+}
+if(balance<0) roast="negative balance is crazy. respectfully.";
+document.getElementById('roast').innerText=roast;
+
+renderChart(categoryTotals);
+save();
+}
+
+function renderChart(categoryTotals){
+const ctx=document.getElementById('chart');
+if(chart) chart.destroy();
+chart=new Chart(ctx,{
+type:'doughnut',
+data:{
+labels:Object.keys(categoryTotals),
+datasets:[{
+data:Object.values(categoryTotals)
+}]
+},
+options:{
+animation:{animateScale:true}
+}
+});
+}
+
+render();
+</script>
+</body>
+</html>
